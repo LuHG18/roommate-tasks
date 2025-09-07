@@ -12,7 +12,8 @@ import {
   StatusBar,
   ActivityIndicator,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  useColorScheme
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -22,6 +23,8 @@ export default function AuthScreen() {
   const [loading, setLoading] = useState(false);
   const [isSigningUp, setIsSigningUp] = useState(false);
   const router = useRouter();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === 'dark';
 
   // Redirect if already logged in
   useEffect(() => {
@@ -57,8 +60,8 @@ export default function AuthScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#f8f9fa" />
+    <SafeAreaView style={[styles.container, isDark && styles.containerDark]}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={isDark ? "#000000" : "#f8f9fa"} />
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
@@ -66,18 +69,18 @@ export default function AuthScreen() {
         <View style={styles.content}>
           {/* Header */}
           <View style={styles.header}>
-            <View style={styles.logoContainer}>
-              <Ionicons name="home" size={48} color="#4A90E2" />
+            <View style={[styles.logoContainer, isDark && styles.logoContainerDark]}>
+              <Ionicons name="home" size={48} color={isDark ? "#5AC8FA" : "#4A90E2"} />
             </View>
-            <Text style={styles.title}>Roommate Tasks</Text>
-            <Text style={styles.subtitle}>
+            <Text style={[styles.title, isDark && styles.titleDark]}>Roommate Tasks</Text>
+            <Text style={[styles.subtitle, isDark && styles.subtitleDark]}>
               {isSigningUp ? 'Create your account' : 'Welcome back!'}
             </Text>
           </View>
 
           {/* Form */}
           <View style={styles.form}>
-            <View style={styles.inputContainer}>
+            <View style={[styles.inputContainer, isDark && styles.inputContainerDark]}>
               <Ionicons name="mail" size={20} color="#8E8E93" style={styles.inputIcon} />
               <TextInput
                 placeholder="Enter your email"
@@ -86,11 +89,11 @@ export default function AuthScreen() {
                 onChangeText={setEmail}
                 autoCapitalize="none"
                 keyboardType="email-address"
-                style={styles.input}
+                style={[styles.input, isDark && styles.inputDark]}
               />
             </View>
 
-            <View style={styles.inputContainer}>
+            <View style={[styles.inputContainer, isDark && styles.inputContainerDark]}>
               <Ionicons name="lock-closed" size={20} color="#8E8E93" style={styles.inputIcon} />
               <TextInput
                 placeholder="Enter your password"
@@ -99,7 +102,7 @@ export default function AuthScreen() {
                 onChangeText={setPassword}
                 autoCapitalize="none"
                 secureTextEntry
-                style={styles.input}
+                style={[styles.input, isDark && styles.inputDark]}
               />
             </View>
 
@@ -130,9 +133,9 @@ export default function AuthScreen() {
               style={styles.switchButton}
               activeOpacity={0.7}
             >
-              <Text style={styles.switchText}>
+              <Text style={[styles.switchText, isDark && styles.switchTextDark]}>
                 {isSigningUp ? 'Already have an account? ' : "Don't have an account? "}
-                <Text style={styles.switchTextBold}>
+                <Text style={[styles.switchTextBold, isDark && styles.switchTextBoldDark]}>
                   {isSigningUp ? 'Log in' : 'Sign up'}
                 </Text>
               </Text>
@@ -148,6 +151,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8f9fa',
+  },
+  containerDark: {
+    backgroundColor: '#000000',
   },
   keyboardView: {
     flex: 1,
@@ -178,6 +184,9 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
+  logoContainerDark: {
+    backgroundColor: '#2C2C2E',
+  },
   title: {
     fontSize: 32,
     fontWeight: '700',
@@ -185,10 +194,16 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     textAlign: 'center',
   },
+  titleDark: {
+    color: '#FFFFFF',
+  },
   subtitle: {
     fontSize: 16,
     color: '#8E8E93',
     textAlign: 'center',
+  },
+  subtitleDark: {
+    color: '#8E8E93',
   },
   form: {
     width: '100%',
@@ -210,6 +225,10 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
+  inputContainerDark: {
+    backgroundColor: '#1C1C1E',
+    shadowOpacity: 0.3,
+  },
   inputIcon: {
     marginRight: 12,
   },
@@ -217,6 +236,9 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     color: '#1C1C1E',
+  },
+  inputDark: {
+    color: '#FFFFFF',
   },
   authButton: {
     backgroundColor: '#4A90E2',
@@ -256,8 +278,14 @@ const styles = StyleSheet.create({
     color: '#8E8E93',
     textAlign: 'center',
   },
+  switchTextDark: {
+    color: '#8E8E93',
+  },
   switchTextBold: {
     color: '#4A90E2',
     fontWeight: '600',
+  },
+  switchTextBoldDark: {
+    color: '#5AC8FA',
   },
 });
