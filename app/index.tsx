@@ -15,9 +15,9 @@ export default function Index() {
       } = await supabase.auth.getSession();
 
       if (error || !session) {
-        router.replace('/auth'); // Not logged in → go to login
+        router.replace('/(auth)'); // Not logged in → go to login
       } else {
-        router.replace('/households'); // Logged in → go to dashboard
+        router.replace('/(tabs)/households'); // Logged in → go to dashboard
       }
 
       setLoading(false);
