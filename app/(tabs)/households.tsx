@@ -44,7 +44,7 @@ export default function HouseholdsScreen() {
       } = await supabase.auth.getSession();
 
       if (error || !session) {
-        router.replace('/auth');
+        router.replace('/(auth)');
         return;
       }
 
