@@ -1,63 +1,102 @@
-import { useState } from 'react'
-import { Alert, Button, StyleSheet, Text, TextInput, View } from 'react-native'
-import { supabase } from '../../lib/supabaseClient'
+import { supabase } from '@/lib/supabaseClient';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { Alert, Button, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 export default function AuthScreen() {
-  const [email, setEmail] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [isSigningUp, setIsSigningUp] = useState(false);
+  const router = useRouter();
 
-  const handleLogin = async () => {
-    setLoading(true)
-    const { error } = await supabase.auth.signInWithOtp({ email })
+  // Redirect if already logged in
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        router.replace('/households');
+      }
+    };
+    checkSession();
+  }, []);
+
+  const handleAuth = async () => {
+    setLoading(true);
+
+    const { error } = isSigningUp
+      ? await supabase.auth.signUp({ email, password })
+      : await supabase.auth.signInWithPassword({ email, password });
+
+    setLoading(false);
 
     if (error) {
-      Alert.alert('Login error', error.message)
+      Alert.alert(`${isSigningUp ? 'Sign Up' : 'Login'} error`, error.message);
     } else {
-      Alert.alert('Check your email', 'We sent you a magic link to log in.')
+      if (isSigningUp) {
+        Alert.alert('Sign up successful!', 'You can now log in.');
+        setIsSigningUp(false); // stay on login screen
+      } else {
+        Alert.alert('Logged in!');
+        router.replace('/households');
+      }
     }
-
-    setLoading(false)
-  }
+  };
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Roommate Task App</Text>
-      <Text style={styles.label}>Sign in with your email</Text>
+
       <TextInput
-        placeholder="you@example.com"
+        placeholder="Enter your email"
         value={email}
         onChangeText={setEmail}
-        keyboardType="email-address"
         autoCapitalize="none"
+        keyboardType="email-address"
         style={styles.input}
       />
-      <Button title={loading ? 'Sending...' : 'Send Magic Link'} onPress={handleLogin} disabled={loading} />
+
+      <TextInput
+        placeholder="Enter your password"
+        value={password}
+        onChangeText={setPassword}
+        autoCapitalize="none"
+        secureTextEntry
+        style={styles.input}
+      />
+
+      <Button
+        title={loading ? (isSigningUp ? 'Signing up...' : 'Logging in...') : isSigningUp ? 'Sign Up' : 'Log In'}
+        onPress={handleAuth}
+        disabled={loading}
+      />
+
+      <TouchableOpacity onPress={() => setIsSigningUp(!isSigningUp)} style={{ marginTop: 16 }}>
+        <Text style={{ textAlign: 'center', color: 'blue' }}>
+          {isSigningUp ? 'Already have an account? Log in' : "Don't have an account? Sign up"}
+        </Text>
+      </TouchableOpacity>
     </View>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 100,
+    justifyContent: 'center',
     paddingHorizontal: 24,
-    backgroundColor: '#fff',
   },
   title: {
     fontSize: 24,
-    fontWeight: '600',
     marginBottom: 24,
-  },
-  label: {
-    fontSize: 16,
-    marginBottom: 12,
+    textAlign: 'center',
   },
   input: {
     height: 48,
-    borderColor: '#ccc',
     borderWidth: 1,
+    borderColor: '#ccc',
     marginBottom: 16,
     paddingHorizontal: 12,
     borderRadius: 6,
   },
-})
+});
