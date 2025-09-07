@@ -70,7 +70,7 @@ export default function HouseholdsScreen() {
             name
           )
         `)
-        .eq('id', userId);
+        .eq('user_id', userId);
 
       console.log('Fetch households result:', { data, error });
 
@@ -136,7 +136,7 @@ export default function HouseholdsScreen() {
             name
           )
         `)
-        .eq('id', userId);
+        .eq('user_id', userId);
 
       if (!error && data) {
         const householdsWithStats = await Promise.all(
@@ -182,6 +182,37 @@ export default function HouseholdsScreen() {
     console.log('Creating household:', { name: newHouseholdName, userId });
 
     try {
+      // First, ensure the user exists in the users table
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', userId)
+        .single();
+
+      if (userError && userError.code === 'PGRST116') {
+        // User doesn't exist, create them
+        const { data: session } = await supabase.auth.getSession();
+        if (session?.user) {
+          const { error: createUserError } = await supabase
+            .from('users')
+            .insert({
+              id: userId,
+              email: session.user.email || '',
+              name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
+            });
+
+          if (createUserError) {
+            console.error('User creation error:', createUserError);
+            Alert.alert('Error', 'Failed to create user profile');
+            return;
+          }
+        }
+      } else if (userError) {
+        console.error('User lookup error:', userError);
+        Alert.alert('Error', 'Failed to verify user');
+        return;
+      }
+
       const { data, error } = await supabase
         .from('households')
         .insert({ name: newHouseholdName, created_by: userId })
@@ -206,7 +237,11 @@ export default function HouseholdsScreen() {
       // Add current user to household_members
       const { error: memberError } = await supabase
         .from('household_members')
-        .insert({ household_id: data.id, id: userId });
+        .insert({ 
+          household_id: data.id, 
+          user_id: userId,
+          name: userData?.name || 'User'
+        });
 
       if (memberError) {
         console.error('Member creation error:', memberError);

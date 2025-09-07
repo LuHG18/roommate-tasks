@@ -22,8 +22,22 @@ interface Person {
   email: string;
   full_name: string | null;
   avatar_url: string | null;
+  phone: string | null;
   shared_households: string[];
   household_count: number;
+  friend_status: 'none' | 'pending' | 'accepted' | 'blocked';
+  is_friend: boolean;
+}
+
+interface FriendRequest {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  status: 'pending' | 'accepted' | 'declined';
+  created_at: string;
+  sender_name: string;
+  sender_email: string;
+  sender_avatar: string | null;
 }
 
 export default function PeopleScreen() {

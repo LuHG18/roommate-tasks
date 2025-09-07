@@ -27,9 +27,16 @@ export default function RootLayout() {
       router.replace("/(tabs)/households");
     } else if (!isAuthenticated && !inAuthGroup) {
       // User is not authenticated and not in auth group, redirect to auth
-      router.replace("/auth");
+      router.replace("/(auth)");
     }
   }, [isAuthenticated, segments]);
 
-  return <Stack />;
+  return (
+    <Stack>
+      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen name="households/[id]" options={{ headerShown: false }} />
+      <Stack.Screen name="tasks/[id]" options={{ headerShown: false }} />
+    </Stack>
+  );
 }
