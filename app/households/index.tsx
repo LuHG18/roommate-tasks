@@ -1,7 +1,14 @@
 import { supabase } from '@/lib/supabaseClient';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Button, FlatList, Text, TextInput, View } from 'react-native';
+import {
+  Alert,
+  Button,
+  FlatList,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
 export default function HouseholdsScreen() {
   const router = useRouter();
@@ -9,26 +16,26 @@ export default function HouseholdsScreen() {
   const [newHouseholdName, setNewHouseholdName] = useState('');
   const [userId, setUserId] = useState<string | null>(null);
 
-  // Check if user is logged in
+  // Get logged in user
   useEffect(() => {
-    const checkSession = async () => {
+    const getSession = async () => {
       const {
         data: { session },
         error,
       } = await supabase.auth.getSession();
 
       if (error || !session) {
-        router.replace('/auth'); // Not logged in → redirect to auth
+        router.replace('/auth');
         return;
       }
 
       setUserId(session.user.id);
     };
 
-    checkSession();
+    getSession();
   }, []);
 
-  // Fetch households user is in
+  // Fetch households the user is in
   useEffect(() => {
     if (!userId) return;
 
@@ -36,7 +43,7 @@ export default function HouseholdsScreen() {
       const { data, error } = await supabase
         .from('household_members')
         .select('household_id, households(name)')
-        .eq('user_id', userId);
+        .eq('id', userId); // 👈 changed from user_id to id
 
       if (error) {
         Alert.alert('Error fetching households', error.message);
@@ -54,9 +61,11 @@ export default function HouseholdsScreen() {
     fetchHouseholds();
   }, [userId]);
 
-  // Create a new household
   const createHousehold = async () => {
-    if (!newHouseholdName.trim()) return;
+    if (!newHouseholdName.trim() || !userId) {
+      console.log('Missing name or user ID');
+      return;
+    }
 
     const { data, error } = await supabase
       .from('households')
@@ -69,10 +78,9 @@ export default function HouseholdsScreen() {
       return;
     }
 
-    // Add current user to household_members
     const { error: memberError } = await supabase
       .from('household_members')
-      .insert({ household_id: data.id, user_id: userId });
+      .insert({ household_id: data.id, id: userId }); // 👈 insert using id
 
     if (memberError) {
       Alert.alert('Error joining household', memberError.message);
