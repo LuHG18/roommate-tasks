@@ -40,7 +40,7 @@ export default function AuthScreen() {
   const handleAuth = async () => {
     setLoading(true);
 
-    const { error } = isSigningUp
+    const { data, error } = isSigningUp
       ? await supabase.auth.signUp({ email, password })
       : await supabase.auth.signInWithPassword({ email, password });
 
@@ -50,9 +50,37 @@ export default function AuthScreen() {
       Alert.alert(`${isSigningUp ? 'Sign Up' : 'Login'} error`, error.message);
     } else {
       if (isSigningUp) {
+        // Create user profile in users table
+        if (data.user) {
+          await supabase
+            .from('users')
+            .insert({
+              id: data.user.id,
+              email: data.user.email || '',
+              name: data.user.email?.split('@')[0] || 'User',
+            });
+        }
         Alert.alert('Sign up successful!', 'You can now log in.');
         setIsSigningUp(false); // stay on login screen
       } else {
+        // Ensure user exists in users table
+        if (data.user) {
+          const { data: existingUser } = await supabase
+            .from('users')
+            .select('id')
+            .eq('id', data.user.id)
+            .single();
+
+          if (!existingUser) {
+            await supabase
+              .from('users')
+              .insert({
+                id: data.user.id,
+                email: data.user.email || '',
+                name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'User',
+              });
+          }
+        }
         Alert.alert('Logged in!');
         router.replace('/(tabs)/households');
       }

@@ -23,6 +23,7 @@ interface UserProfile {
   email: string;
   full_name: string | null;
   avatar_url: string | null;
+  phone: string | null;
   created_at: string;
 }
 
@@ -35,6 +36,7 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
   const [uploading, setUploading] = useState(false);
 
   // Get current user profile
@@ -42,8 +44,9 @@ export default function ProfileScreen() {
     const getCurrentUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
+        // Get user profile from users table
         const { data: profileData, error } = await supabase
-          .from('profiles')
+          .from('users')
           .select('*')
           .eq('id', session.user.id)
           .single();
@@ -52,12 +55,13 @@ export default function ProfileScreen() {
           console.error('Error fetching profile:', error);
           // Create profile if it doesn't exist
           const { data: newProfile, error: createError } = await supabase
-            .from('profiles')
+            .from('users')
             .insert({
               id: session.user.id,
               email: session.user.email,
-              full_name: session.user.user_metadata?.full_name || null,
+              name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
               avatar_url: session.user.user_metadata?.avatar_url || null,
+              phone: null,
             })
             .select()
             .single();
@@ -67,17 +71,33 @@ export default function ProfileScreen() {
             setProfile({
               id: session.user.id,
               email: session.user.email || '',
-              full_name: session.user.user_metadata?.full_name || null,
+              full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
               avatar_url: session.user.user_metadata?.avatar_url || null,
+              phone: null,
               created_at: new Date().toISOString(),
             });
           } else {
-            setProfile(newProfile);
+            setProfile({
+              id: newProfile.id,
+              email: newProfile.email,
+              full_name: newProfile.name,
+              avatar_url: newProfile.avatar_url,
+              phone: newProfile.phone,
+              created_at: newProfile.created_at,
+            });
           }
         } else {
-          setProfile(profileData);
+          setProfile({
+            id: profileData.id,
+            email: profileData.email,
+            full_name: profileData.name,
+            avatar_url: profileData.avatar_url,
+            phone: profileData.phone,
+            created_at: profileData.created_at,
+          });
         }
-        setEditName(profileData?.full_name || '');
+        setEditName(profileData?.name || '');
+        setEditPhone(profileData?.phone || '');
       }
       setLoading(false);
     };
@@ -130,7 +150,7 @@ export default function ProfileScreen() {
         .getPublicUrl(filePath);
 
       const { error: updateError } = await supabase
-        .from('profiles')
+        .from('users')
         .update({ avatar_url: publicUrl })
         .eq('id', profile.id);
 
@@ -153,15 +173,22 @@ export default function ProfileScreen() {
 
     try {
       const { error } = await supabase
-        .from('profiles')
-        .update({ full_name: editName })
+        .from('users')
+        .update({ 
+          name: editName,
+          phone: editPhone 
+        })
         .eq('id', profile.id);
 
       if (error) {
         throw error;
       }
 
-      setProfile(prev => prev ? { ...prev, full_name: editName } : null);
+      setProfile(prev => prev ? { 
+        ...prev, 
+        full_name: editName,
+        phone: editPhone 
+      } : null);
       setEditing(false);
       Alert.alert('Success', 'Profile updated!');
     } catch (error) {
@@ -273,6 +300,20 @@ export default function ProfileScreen() {
             <Text style={[styles.profileEmail, isDark && styles.profileEmailDark]}>
               {profile.email}
             </Text>
+            {editing ? (
+              <TextInput
+                value={editPhone}
+                onChangeText={setEditPhone}
+                style={[styles.phoneInput, isDark && styles.phoneInputDark]}
+                placeholder="Enter your phone number"
+                placeholderTextColor={isDark ? "#8E8E93" : "#8E8E93"}
+                keyboardType="phone-pad"
+              />
+            ) : (
+              <Text style={[styles.profilePhone, isDark && styles.profilePhoneDark]}>
+                {profile.phone || 'No phone number'}
+              </Text>
+            )}
           </View>
 
           <TouchableOpacity
@@ -463,6 +504,27 @@ const styles = StyleSheet.create({
   nameInputDark: {
     color: '#FFFFFF',
     backgroundColor: '#2C2C2E',
+  },
+  phoneInput: {
+    fontSize: 16,
+    color: '#1C1C1E',
+    marginTop: 4,
+    backgroundColor: '#F2F2F7',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  phoneInputDark: {
+    color: '#FFFFFF',
+    backgroundColor: '#2C2C2E',
+  },
+  profilePhone: {
+    fontSize: 16,
+    color: '#8E8E93',
+    marginTop: 4,
+  },
+  profilePhoneDark: {
+    color: '#8E8E93',
   },
   editButton: {
     padding: 8,

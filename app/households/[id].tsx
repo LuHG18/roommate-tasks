@@ -64,6 +64,9 @@ export default function HouseholdDetailScreen() {
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDetails, setNewTaskDetails] = useState('');
   const [userId, setUserId] = useState<string | null>(null);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviting, setInviting] = useState(false);
 
   // Get current user
   useEffect(() => {
@@ -105,7 +108,7 @@ export default function HouseholdDetailScreen() {
           role,
           joined_at,
           is_active,
-          profiles:auth.users(email)
+          users(email, avatar_url, phone)
         `)
         .eq('household_id', id)
         .eq('is_active', true);
@@ -116,7 +119,7 @@ export default function HouseholdDetailScreen() {
         // Transform the data to match our interface
         const transformedMembers = membersData?.map(member => ({
           id: member.id,
-          email: member.profiles?.email || 'Unknown',
+          email: member.users?.email || 'Unknown',
           name: member.name,
           role: member.role || 'member',
           joined_at: member.joined_at || new Date().toISOString(),
@@ -210,6 +213,88 @@ export default function HouseholdDetailScreen() {
     }
   };
 
+  const inviteMember = async () => {
+    if (!inviteEmail.trim()) {
+      Alert.alert('Error', 'Please enter an email address');
+      return;
+    }
+
+    if (!userId || !id) {
+      Alert.alert('Error', 'Unable to send invitation');
+      return;
+    }
+
+    setInviting(true);
+    try {
+      // First, find the user by email
+      const { data: userData } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', inviteEmail.trim())
+        .single();
+
+      if (!userData) {
+        Alert.alert('Error', 'User with this email not found');
+        setInviting(false);
+        return;
+      }
+
+      // Check if user already exists in household
+      const { data: existingMember } = await supabase
+        .from('household_members')
+        .select('id')
+        .eq('household_id', id)
+        .eq('user_id', userData.id)
+        .single();
+
+      if (existingMember) {
+        Alert.alert('Error', 'This user is already a member of this household');
+        setInviting(false);
+        return;
+      }
+
+      // Check if invitation already exists
+      const { data: existingInvite } = await supabase
+        .from('household_invitations')
+        .select('id')
+        .eq('household_id', id)
+        .eq('invitee_email', inviteEmail.trim())
+        .eq('status', 'pending')
+        .single();
+
+      if (existingInvite) {
+        Alert.alert('Error', 'An invitation has already been sent to this email');
+        setInviting(false);
+        return;
+      }
+
+      // Create invitation
+      const { error } = await supabase
+        .from('household_invitations')
+        .insert({
+          household_id: id,
+          inviter_id: userId,
+          invitee_email: inviteEmail.trim(),
+          status: 'pending'
+        });
+
+      if (error) {
+        console.error('Invitation error:', error);
+        Alert.alert('Error sending invitation', error.message);
+        return;
+      }
+
+      Alert.alert('Success', 'Invitation sent successfully!');
+      setInviteEmail('');
+      setShowInviteModal(false);
+    } catch (err) {
+      console.error('Unexpected error:', err);
+      Alert.alert('Error', 'An unexpected error occurred');
+    } finally {
+      setInviting(false);
+    }
+  };
+
   const renderTask = ({ item }: { item: Task }) => (
     <TaskComponent 
       task={item} 
@@ -279,6 +364,16 @@ export default function HouseholdDetailScreen() {
           <Text style={[styles.sectionTitle, isDark && styles.sectionTitleDark]}>
             Members ({members.length})
           </Text>
+          <TouchableOpacity
+            style={[styles.inviteButton, isDark && styles.inviteButtonDark]}
+            onPress={() => setShowInviteModal(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="person-add" size={16} color={isDark ? "#5AC8FA" : "#4A90E2"} />
+            <Text style={[styles.inviteButtonText, isDark && styles.inviteButtonTextDark]}>
+              Invite
+            </Text>
+          </TouchableOpacity>
         </View>
         <View style={styles.membersList}>
           {members.map((member, index) => (
@@ -380,6 +475,73 @@ export default function HouseholdDetailScreen() {
           }
         />
       </View>
+
+      {/* Invite Member Modal */}
+      {showInviteModal && (
+        <View style={[styles.modalOverlay, isDark && styles.modalOverlayDark]}>
+          <View style={[styles.modalContent, isDark && styles.modalContentDark]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, isDark && styles.modalTitleDark]}>
+                Invite Member
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowInviteModal(false)}
+                style={styles.modalCloseButton}
+              >
+                <Ionicons name="close" size={24} color={isDark ? "#FFFFFF" : "#1C1C1E"} />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.modalBody}>
+              <Text style={[styles.modalLabel, isDark && styles.modalLabelDark]}>
+                Email Address
+              </Text>
+              <TextInput
+                placeholder="Enter email address"
+                placeholderTextColor={isDark ? "#8E8E93" : "#8E8E93"}
+                value={inviteEmail}
+                onChangeText={setInviteEmail}
+                style={[styles.modalInput, isDark && styles.modalInputDark]}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+            
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalButtonCancel, isDark && styles.modalButtonCancelDark]}
+                onPress={() => setShowInviteModal(false)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.modalButtonText, styles.modalButtonTextCancel, isDark && styles.modalButtonTextCancelDark]}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.modalButton, 
+                  styles.modalButtonPrimary, 
+                  !inviteEmail.trim() && styles.modalButtonDisabled,
+                  isDark && styles.modalButtonPrimaryDark
+                ]}
+                onPress={inviteMember}
+                disabled={!inviteEmail.trim() || inviting}
+                activeOpacity={0.7}
+              >
+                {inviting ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Text style={styles.modalButtonText}>
+                    Send Invitation
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -488,6 +650,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 16,
   },
   sectionTitle: {
@@ -495,6 +658,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1C1C1E',
     marginLeft: 8,
+    flex: 1,
   },
   sectionTitleDark: {
     color: '#FFFFFF',
@@ -638,5 +802,143 @@ const styles = StyleSheet.create({
   },
   emptyTasksSubtitleDark: {
     color: '#8E8E93',
+  },
+  inviteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0F7FF',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 4,
+  },
+  inviteButtonDark: {
+    backgroundColor: '#1A1A1A',
+  },
+  inviteButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#4A90E2',
+  },
+  inviteButtonTextDark: {
+    color: '#5AC8FA',
+  },
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  modalOverlayDark: {
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 24,
+    marginHorizontal: 20,
+    width: '90%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  modalContentDark: {
+    backgroundColor: '#1C1C1E',
+    shadowOpacity: 0.5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1C1C1E',
+  },
+  modalTitleDark: {
+    color: '#FFFFFF',
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalBody: {
+    marginBottom: 24,
+  },
+  modalLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1C1C1E',
+    marginBottom: 8,
+  },
+  modalLabelDark: {
+    color: '#FFFFFF',
+  },
+  modalInput: {
+    backgroundColor: '#F2F2F7',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#1C1C1E',
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+  },
+  modalInputDark: {
+    backgroundColor: '#2C2C2E',
+    color: '#FFFFFF',
+    borderColor: '#38383A',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalButtonCancel: {
+    backgroundColor: '#F2F2F7',
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+  },
+  modalButtonCancelDark: {
+    backgroundColor: '#2C2C2E',
+    borderColor: '#38383A',
+  },
+  modalButtonPrimary: {
+    backgroundColor: '#4A90E2',
+  },
+  modalButtonPrimaryDark: {
+    backgroundColor: '#5AC8FA',
+  },
+  modalButtonDisabled: {
+    backgroundColor: '#C7C7CC',
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'white',
+  },
+  modalButtonTextCancel: {
+    color: '#1C1C1E',
+  },
+  modalButtonTextCancelDark: {
+    color: '#FFFFFF',
   },
 });
