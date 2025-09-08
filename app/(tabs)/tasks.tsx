@@ -51,6 +51,7 @@ export default function MyTasksScreen() {
   const [userId, setUserId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFilter, setSelectedFilter] = useState('all');
+  const [assignedTasksCount, setAssignedTasksCount] = useState(0);
 
   const filterOptions: FilterOption[] = [
     { id: 'all', label: 'All Tasks', value: 'all' },
@@ -81,7 +82,7 @@ export default function MyTasksScreen() {
       const { data: householdMemberships } = await supabase
         .from('household_members')
         .select('household_id')
-        .eq('id', userId)
+        .eq('user_id', userId)
         .eq('is_active', true);
 
       if (!householdMemberships) return;
@@ -102,8 +103,7 @@ export default function MyTasksScreen() {
           created_at,
           updated_at,
           due_date,
-          priority,
-          households(name)
+          priority
         `)
         .in('household_id', householdIds)
         .order('created_at', { ascending: false });
@@ -114,9 +114,20 @@ export default function MyTasksScreen() {
         return;
       }
 
+      // Get household names if we have tasks
+      let householdsData: any[] = [];
+      if (tasksData && tasksData.length > 0) {
+        const uniqueHouseholdIds = [...new Set(tasksData.map(task => task.household_id))];
+        const { data: households } = await supabase
+          .from('households')
+          .select('id, name')
+          .in('id', uniqueHouseholdIds);
+        householdsData = households || [];
+      }
+
       const transformedTasks = tasksData?.map(task => ({
         ...task,
-        household_name: task.households?.name || 'Unknown Household',
+        household_name: householdsData.find(h => h.id === task.household_id)?.name || 'Unknown Household',
         created_by: task.created_by || '',
         updated_at: task.updated_at || task.created_at,
         due_date: task.due_date || null,
@@ -125,6 +136,12 @@ export default function MyTasksScreen() {
 
       setTasks(transformedTasks);
       setFilteredTasks(transformedTasks);
+      
+      // Count tasks assigned to current user
+      const assignedCount = transformedTasks.filter(task => 
+        task.assignee === userId && !task.status
+      ).length;
+      setAssignedTasksCount(assignedCount);
     } catch (error) {
       console.error('Unexpected error:', error);
       Alert.alert('Error', 'An unexpected error occurred');
@@ -135,7 +152,9 @@ export default function MyTasksScreen() {
   };
 
   useEffect(() => {
-    fetchTasks();
+    if (userId) {
+      fetchTasks();
+    }
   }, [userId]);
 
   // Filter and search tasks
@@ -253,6 +272,23 @@ export default function MyTasksScreen() {
           </TouchableOpacity>
         )}
       </View>
+
+      {/* Notification Banner */}
+      {assignedTasksCount > 0 && (
+        <View style={[styles.notificationBanner, isDark && styles.notificationBannerDark]}>
+          <Ionicons name="notifications" size={20} color="#FF9500" />
+          <Text style={[styles.notificationText, isDark && styles.notificationTextDark]}>
+            You have {assignedTasksCount} task{assignedTasksCount === 1 ? '' : 's'} assigned to you
+          </Text>
+          <TouchableOpacity
+            style={styles.notificationButton}
+            onPress={() => setSelectedFilter('assigned-to-me')}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.notificationButtonText}>View</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Filter Buttons */}
       <View style={styles.filtersContainer}>
@@ -446,5 +482,41 @@ const styles = StyleSheet.create({
   },
   emptySubtitleDark: {
     color: '#8E8E93',
+  },
+  notificationBanner: {
+    backgroundColor: '#FFF3E0',
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF9500',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  notificationBannerDark: {
+    backgroundColor: '#2C2C2E',
+  },
+  notificationText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1C1C1E',
+  },
+  notificationTextDark: {
+    color: '#FFFFFF',
+  },
+  notificationButton: {
+    backgroundColor: '#FF9500',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  notificationButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });

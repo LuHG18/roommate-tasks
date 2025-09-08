@@ -21,7 +21,7 @@ import * as ImagePicker from 'expo-image-picker';
 interface UserProfile {
   id: string;
   email: string;
-  full_name: string | null;
+  name: string | null;
   avatar_url: string | null;
   created_at: string;
 }
@@ -43,7 +43,7 @@ export default function ProfileScreen() {
       const { data: { session } } = await supabase.auth.getSession();
       if (session) {
         const { data: profileData, error } = await supabase
-          .from('profiles')
+          .from('users')
           .select('*')
           .eq('id', session.user.id)
           .single();
@@ -52,11 +52,11 @@ export default function ProfileScreen() {
           console.error('Error fetching profile:', error);
           // Create profile if it doesn't exist
           const { data: newProfile, error: createError } = await supabase
-            .from('profiles')
+            .from('users')
             .insert({
               id: session.user.id,
               email: session.user.email,
-              full_name: session.user.user_metadata?.full_name || null,
+              name: session.user.user_metadata?.full_name || null,
               avatar_url: session.user.user_metadata?.avatar_url || null,
             })
             .select()
@@ -67,7 +67,7 @@ export default function ProfileScreen() {
             setProfile({
               id: session.user.id,
               email: session.user.email || '',
-              full_name: session.user.user_metadata?.full_name || null,
+              name: session.user.user_metadata?.full_name || null,
               avatar_url: session.user.user_metadata?.avatar_url || null,
               created_at: new Date().toISOString(),
             });
@@ -77,7 +77,7 @@ export default function ProfileScreen() {
         } else {
           setProfile(profileData);
         }
-        setEditName(profileData?.full_name || '');
+        setEditName(profileData?.name || '');
       }
       setLoading(false);
     };
@@ -130,7 +130,7 @@ export default function ProfileScreen() {
         .getPublicUrl(filePath);
 
       const { error: updateError } = await supabase
-        .from('profiles')
+        .from('users')
         .update({ avatar_url: publicUrl })
         .eq('id', profile.id);
 
@@ -153,15 +153,15 @@ export default function ProfileScreen() {
 
     try {
       const { error } = await supabase
-        .from('profiles')
-        .update({ full_name: editName })
+        .from('users')
+        .update({ name: editName })
         .eq('id', profile.id);
 
       if (error) {
         throw error;
       }
 
-      setProfile(prev => prev ? { ...prev, full_name: editName } : null);
+      setProfile(prev => prev ? { ...prev, name: editName } : null);
       setEditing(false);
       Alert.alert('Success', 'Profile updated!');
     } catch (error) {
@@ -267,7 +267,7 @@ export default function ProfileScreen() {
               />
             ) : (
               <Text style={[styles.profileName, isDark && styles.profileNameDark]}>
-                {profile.full_name || 'No name set'}
+                {profile.name || 'No name set'}
               </Text>
             )}
             <Text style={[styles.profileEmail, isDark && styles.profileEmailDark]}>

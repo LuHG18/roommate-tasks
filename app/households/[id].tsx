@@ -13,7 +13,8 @@ import {
   StatusBar,
   ActivityIndicator,
   useColorScheme,
-  RefreshControl
+  RefreshControl,
+  Modal
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import TaskComponent from '@/components/TaskComponent';
@@ -28,7 +29,7 @@ interface Household {
 }
 
 interface Member {
-  id: string;
+  user_id: string;
   email: string;
   name: string | null;
   role: 'admin' | 'member' | 'viewer';
@@ -63,7 +64,13 @@ export default function HouseholdDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDetails, setNewTaskDetails] = useState('');
+  const [selectedAssignee, setSelectedAssignee] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [memberName, setMemberName] = useState('');
+  const [memberRole, setMemberRole] = useState<'admin' | 'member' | 'viewer'>('member');
+  const [inviting, setInviting] = useState(false);
 
   // Get current user
   useEffect(() => {
@@ -99,30 +106,39 @@ export default function HouseholdDetailScreen() {
       // Fetch members
       const { data: membersData, error: membersError } = await supabase
         .from('household_members')
-        .select(`
-          id,
-          name,
-          role,
-          joined_at,
-          is_active,
-          profiles:auth.users(email)
-        `)
+        .select('user_id, name, role, joined_at, is_active')
         .eq('household_id', id)
         .eq('is_active', true);
 
       if (membersError) {
         console.error('Error fetching members:', membersError);
-      } else {
-        // Transform the data to match our interface
-        const transformedMembers = membersData?.map(member => ({
-          id: member.id,
-          email: member.profiles?.email || 'Unknown',
-          name: member.name,
-          role: member.role || 'member',
-          joined_at: member.joined_at || new Date().toISOString(),
-          is_active: member.is_active ?? true
-        })) || [];
+        setMembers([]);
+      } else if (membersData && membersData.length > 0) {
+        // Get user details for all members
+        const userIds = membersData.map(member => member.user_id);
+        const { data: usersData, error: usersError } = await supabase
+          .from('users')
+          .select('id, email, avatar_url, phone')
+          .in('id', userIds);
+
+        if (usersError) {
+          console.error('Error fetching user details:', usersError);
+        }
+
+        const transformedMembers = membersData.map(member => {
+          const user = usersData?.find(u => u.id === member.user_id);
+          return {
+            user_id: member.user_id,
+            email: user?.email || 'Unknown',
+            name: member.name || user?.email || 'Unknown',
+            role: member.role as 'admin' | 'member' | 'viewer',
+            joined_at: member.joined_at,
+            is_active: member.is_active,
+          };
+        });
         setMembers(transformedMembers);
+      } else {
+        setMembers([]);
       }
 
       // Fetch tasks
@@ -168,12 +184,94 @@ export default function HouseholdDetailScreen() {
   };
 
   useEffect(() => {
-    fetchHouseholdData();
+    if (id && userId) {
+      fetchHouseholdData();
+    }
   }, [id, userId]);
 
   const onRefresh = () => {
     setRefreshing(true);
     fetchHouseholdData();
+  };
+
+  const inviteMember = async () => {
+    if (!inviteEmail.trim()) {
+      Alert.alert('Error', 'Please enter an email address');
+      return;
+    }
+
+    if (!memberName.trim()) {
+      Alert.alert('Error', 'Please enter a member name');
+      return;
+    }
+
+    if (!userId || !id) {
+      Alert.alert('Error', 'Missing required information');
+      return;
+    }
+
+    setInviting(true);
+
+    try {
+      // Find the user by email in the users table
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('id, name')
+        .eq('email', inviteEmail.trim())
+        .single();
+
+      if (userError || !userData) {
+        Alert.alert('Error', 'User with this email not found. They need to create an account first.');
+        setInviting(false);
+        return;
+      }
+
+      // Check if user already exists in household_members
+      const { data: existingMember } = await supabase
+        .from('household_members')
+        .select('user_id')
+        .eq('household_id', id)
+        .eq('user_id', userData.id)
+        .single();
+
+      if (existingMember) {
+        Alert.alert('Error', 'User is already a member of this household');
+        setInviting(false);
+        return;
+      }
+
+      // Add user directly to household_members
+      const { error: memberError } = await supabase
+        .from('household_members')
+        .insert({
+          user_id: userData.id,
+          household_id: id,
+          name: memberName.trim(),
+          role: memberRole,
+          is_active: true
+        });
+
+      if (memberError) {
+        console.error('Error adding member:', memberError);
+        Alert.alert('Error', 'Failed to add member to household');
+        setInviting(false);
+        return;
+      }
+
+      Alert.alert('Success', `${memberName} has been added to the household!`);
+      setInviteEmail('');
+      setMemberName('');
+      setMemberRole('member');
+      setShowInviteModal(false);
+      
+      // Refresh household data to show new member
+      fetchHouseholdData();
+    } catch (err) {
+      console.error('Unexpected error:', err);
+      Alert.alert('Error', 'An unexpected error occurred');
+    } finally {
+      setInviting(false);
+    }
   };
 
   const createTask = async () => {
@@ -187,7 +285,7 @@ export default function HouseholdDetailScreen() {
           details: newTaskDetails,
           household_id: id,
           status: false,
-          assignee: null,
+          assignee: selectedAssignee,
           created_by: userId,
           priority: 'medium'
         })
@@ -202,8 +300,21 @@ export default function HouseholdDetailScreen() {
 
       setNewTaskTitle('');
       setNewTaskDetails('');
+      setSelectedAssignee(null);
       setTasks(prev => [data, ...prev]);
-      Alert.alert('Success', 'Task created successfully!');
+      
+      // Show notification if task was assigned to someone
+      if (selectedAssignee) {
+        const assigneeMember = members.find(m => m.user_id === selectedAssignee);
+        const assigneeName = assigneeMember?.name || assigneeMember?.email || 'Unknown';
+        Alert.alert(
+          'Task Created & Assigned!', 
+          `Task "${newTaskTitle}" has been assigned to ${assigneeName}. They will be notified.`,
+          [{ text: 'OK', style: 'default' }]
+        );
+      } else {
+        Alert.alert('Success', 'Task created successfully!');
+      }
     } catch (error) {
       console.error('Unexpected error:', error);
       Alert.alert('Error', 'An unexpected error occurred');
@@ -275,14 +386,26 @@ export default function HouseholdDetailScreen() {
       {/* Members Section */}
       <View style={[styles.section, isDark && styles.sectionDark]}>
         <View style={styles.sectionHeader}>
-          <Ionicons name="people" size={20} color={isDark ? "#5AC8FA" : "#4A90E2"} />
-          <Text style={[styles.sectionTitle, isDark && styles.sectionTitleDark]}>
-            Members ({members.length})
-          </Text>
+          <View style={styles.sectionTitleContainer}>
+            <Ionicons name="people" size={20} color={isDark ? "#5AC8FA" : "#4A90E2"} />
+            <Text style={[styles.sectionTitle, isDark && styles.sectionTitleDark]}>
+              Members ({members.length})
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.inviteButton, isDark && styles.inviteButtonDark]}
+            onPress={() => setShowInviteModal(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="person-add" size={16} color={isDark ? "#5AC8FA" : "#4A90E2"} />
+            <Text style={[styles.inviteButtonText, isDark && styles.inviteButtonTextDark]}>
+              Invite
+            </Text>
+          </TouchableOpacity>
         </View>
         <View style={styles.membersList}>
           {members.map((member, index) => (
-            <View key={member.id} style={[styles.memberItem, isDark && styles.memberItemDark]}>
+            <View key={member.user_id} style={[styles.memberItem, isDark && styles.memberItemDark]}>
               <View style={[styles.memberAvatar, isDark && styles.memberAvatarDark]}>
                 <Text style={[styles.memberInitial, isDark && styles.memberInitialDark]}>
                   {(member.name || member.email).charAt(0).toUpperCase()}
@@ -334,6 +457,52 @@ export default function HouseholdDetailScreen() {
             multiline
             numberOfLines={2}
           />
+          
+          {/* Assignee Selection */}
+          <View style={styles.assigneeSection}>
+            <Text style={[styles.assigneeLabel, isDark && styles.assigneeLabelDark]}>
+              Assign to:
+            </Text>
+            <View style={styles.assigneeOptions}>
+              <TouchableOpacity
+                style={[
+                  styles.assigneeOption,
+                  selectedAssignee === null && styles.assigneeOptionSelected,
+                  isDark && styles.assigneeOptionDark
+                ]}
+                onPress={() => setSelectedAssignee(null)}
+              >
+                <Text style={[
+                  styles.assigneeOptionText,
+                  selectedAssignee === null && styles.assigneeOptionTextSelected,
+                  isDark && styles.assigneeOptionTextDark
+                ]}>
+                  Unassigned
+                </Text>
+              </TouchableOpacity>
+              
+              {members.map((member) => (
+                <TouchableOpacity
+                  key={member.user_id}
+                  style={[
+                    styles.assigneeOption,
+                    selectedAssignee === member.user_id && styles.assigneeOptionSelected,
+                    isDark && styles.assigneeOptionDark
+                  ]}
+                  onPress={() => setSelectedAssignee(member.user_id)}
+                >
+                  <Text style={[
+                    styles.assigneeOptionText,
+                    selectedAssignee === member.user_id && styles.assigneeOptionTextSelected,
+                    isDark && styles.assigneeOptionTextDark
+                  ]}>
+                    {member.name || member.email}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+          
           <TouchableOpacity 
             style={[styles.createTaskButton, !newTaskTitle.trim() && styles.createTaskButtonDisabled]}
             onPress={createTask}
@@ -380,6 +549,110 @@ export default function HouseholdDetailScreen() {
           }
         />
       </View>
+
+      {/* Invitation Modal */}
+      <Modal
+        visible={showInviteModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowInviteModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, isDark && styles.modalContentDark]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, isDark && styles.modalTitleDark]}>
+                Invite Member
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowInviteModal(false)}
+                style={styles.closeButton}
+              >
+                <Ionicons name="close" size={24} color={isDark ? "#FFFFFF" : "#1C1C1E"} />
+              </TouchableOpacity>
+            </View>
+            
+            <Text style={[styles.modalDescription, isDark && styles.modalDescriptionDark]}>
+              Add a new member to this household by entering their details.
+            </Text>
+            
+            <TextInput
+              placeholder="Enter email address"
+              placeholderTextColor={isDark ? "#8E8E93" : "#8E8E93"}
+              value={inviteEmail}
+              onChangeText={setInviteEmail}
+              style={[styles.modalInput, isDark && styles.modalInputDark]}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+            
+            <TextInput
+              placeholder="Enter member name (how they appear in household)"
+              placeholderTextColor={isDark ? "#8E8E93" : "#8E8E93"}
+              value={memberName}
+              onChangeText={setMemberName}
+              style={[styles.modalInput, isDark && styles.modalInputDark, { marginTop: 15 }]}
+              autoCapitalize="words"
+            />
+            
+            <View style={styles.roleContainer}>
+              <Text style={[styles.roleLabel, isDark && styles.roleLabelDark]}>
+                Role:
+              </Text>
+              <View style={styles.roleButtons}>
+                {(['viewer', 'member', 'admin'] as const).map((role) => (
+                  <TouchableOpacity
+                    key={role}
+                    style={[
+                      styles.roleButton,
+                      memberRole === role && styles.roleButtonSelected,
+                      isDark && styles.roleButtonDark,
+                      memberRole === role && isDark && styles.roleButtonSelectedDark
+                    ]}
+                    onPress={() => setMemberRole(role)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[
+                      styles.roleButtonText,
+                      memberRole === role && styles.roleButtonTextSelected,
+                      isDark && styles.roleButtonTextDark,
+                      memberRole === role && isDark && styles.roleButtonTextSelectedDark
+                    ]}>
+                      {role.charAt(0).toUpperCase() + role.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setShowInviteModal(false)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.modalButton,
+                  styles.sendButton,
+                  (!inviteEmail.trim() || !memberName.trim() || inviting) && styles.sendButtonDisabled
+                ]}
+                onPress={inviteMember}
+                disabled={!inviteEmail.trim() || !memberName.trim() || inviting}
+                activeOpacity={0.7}
+              >
+                {inviting ? (
+                  <ActivityIndicator color="white" size="small" />
+                ) : (
+                  <Text style={styles.sendButtonText}>Add Member</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -638,5 +911,216 @@ const styles = StyleSheet.create({
   },
   emptyTasksSubtitleDark: {
     color: '#8E8E93',
+  },
+  assigneeSection: {
+    marginTop: 12,
+  },
+  assigneeLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1C1C1E',
+    marginBottom: 8,
+  },
+  assigneeLabelDark: {
+    color: '#FFFFFF',
+  },
+  assigneeOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  assigneeOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    backgroundColor: '#F2F2F7',
+  },
+  assigneeOptionDark: {
+    borderColor: '#38383A',
+    backgroundColor: '#2C2C2E',
+  },
+  assigneeOptionSelected: {
+    backgroundColor: '#4A90E2',
+    borderColor: '#4A90E2',
+  },
+  assigneeOptionText: {
+    fontSize: 14,
+    color: '#1C1C1E',
+  },
+  assigneeOptionTextDark: {
+    color: '#FFFFFF',
+  },
+  assigneeOptionTextSelected: {
+    color: '#FFFFFF',
+  },
+  sectionTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  inviteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#4A90E2',
+    backgroundColor: 'transparent',
+    gap: 4,
+  },
+  inviteButtonDark: {
+    borderColor: '#5AC8FA',
+  },
+  inviteButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#4A90E2',
+  },
+  inviteButtonTextDark: {
+    color: '#5AC8FA',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 24,
+    width: '90%',
+    maxWidth: 400,
+  },
+  modalContentDark: {
+    backgroundColor: '#1C1C1E',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1C1C1E',
+  },
+  modalTitleDark: {
+    color: '#FFFFFF',
+  },
+  closeButton: {
+    padding: 4,
+  },
+  modalDescription: {
+    fontSize: 16,
+    color: '#8E8E93',
+    marginBottom: 20,
+    lineHeight: 22,
+  },
+  modalDescriptionDark: {
+    color: '#8E8E93',
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#1C1C1E',
+    backgroundColor: '#F2F2F7',
+    marginBottom: 24,
+  },
+  modalInputDark: {
+    borderColor: '#38383A',
+    backgroundColor: '#2C2C2E',
+    color: '#FFFFFF',
+  },
+  roleContainer: {
+    marginBottom: 24,
+  },
+  roleLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1C1C1E',
+    marginBottom: 12,
+  },
+  roleLabelDark: {
+    color: '#FFFFFF',
+  },
+  roleButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  roleButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    backgroundColor: '#F2F2F7',
+    alignItems: 'center',
+  },
+  roleButtonDark: {
+    borderColor: '#38383A',
+    backgroundColor: '#2C2C2E',
+  },
+  roleButtonSelected: {
+    borderColor: '#4A90E2',
+    backgroundColor: '#4A90E2',
+  },
+  roleButtonSelectedDark: {
+    borderColor: '#5AC8FA',
+    backgroundColor: '#5AC8FA',
+  },
+  roleButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1C1C1E',
+  },
+  roleButtonTextDark: {
+    color: '#FFFFFF',
+  },
+  roleButtonTextSelected: {
+    color: '#FFFFFF',
+  },
+  roleButtonTextSelectedDark: {
+    color: '#1C1C1E',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#F2F2F7',
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+  },
+  sendButton: {
+    backgroundColor: '#4A90E2',
+  },
+  sendButtonDisabled: {
+    backgroundColor: '#C7C7CC',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1C1C1E',
+  },
+  sendButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });
