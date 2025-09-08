@@ -321,6 +321,88 @@ export default function HouseholdDetailScreen() {
     }
   };
 
+  const inviteMember = async () => {
+    if (!inviteEmail.trim()) {
+      Alert.alert('Error', 'Please enter an email address');
+      return;
+    }
+
+    if (!userId || !id) {
+      Alert.alert('Error', 'Unable to send invitation');
+      return;
+    }
+
+    setInviting(true);
+    try {
+      // First, find the user by email
+      const { data: userData } = await supabase
+        .from('users')
+        .select('id')
+        .eq('email', inviteEmail.trim())
+        .single();
+
+      if (!userData) {
+        Alert.alert('Error', 'User with this email not found');
+        setInviting(false);
+        return;
+      }
+
+      // Check if user already exists in household
+      const { data: existingMember } = await supabase
+        .from('household_members')
+        .select('id')
+        .eq('household_id', id)
+        .eq('user_id', userData.id)
+        .single();
+
+      if (existingMember) {
+        Alert.alert('Error', 'This user is already a member of this household');
+        setInviting(false);
+        return;
+      }
+
+      // Check if invitation already exists
+      const { data: existingInvite } = await supabase
+        .from('household_invitations')
+        .select('id')
+        .eq('household_id', id)
+        .eq('invitee_email', inviteEmail.trim())
+        .eq('status', 'pending')
+        .single();
+
+      if (existingInvite) {
+        Alert.alert('Error', 'An invitation has already been sent to this email');
+        setInviting(false);
+        return;
+      }
+
+      // Create invitation
+      const { error } = await supabase
+        .from('household_invitations')
+        .insert({
+          household_id: id,
+          inviter_id: userId,
+          invitee_email: inviteEmail.trim(),
+          status: 'pending'
+        });
+
+      if (error) {
+        console.error('Invitation error:', error);
+        Alert.alert('Error sending invitation', error.message);
+        return;
+      }
+
+      Alert.alert('Success', 'Invitation sent successfully!');
+      setInviteEmail('');
+      setShowInviteModal(false);
+    } catch (err) {
+      console.error('Unexpected error:', err);
+      Alert.alert('Error', 'An unexpected error occurred');
+    } finally {
+      setInviting(false);
+    }
+  };
+
   const renderTask = ({ item }: { item: Task }) => (
     <TaskComponent 
       task={item} 
@@ -761,6 +843,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 16,
   },
   sectionTitle: {
@@ -768,6 +851,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1C1C1E',
     marginLeft: 8,
+    flex: 1,
   },
   sectionTitleDark: {
     color: '#FFFFFF',
