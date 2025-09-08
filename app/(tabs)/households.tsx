@@ -30,6 +30,7 @@ export default function HouseholdsScreen() {
   const router = useRouter();
   const [households, setHouseholds] = useState<HouseholdWithStats[]>([]);
   const [newHouseholdName, setNewHouseholdName] = useState('');
+  const [newHouseholdDescription, setNewHouseholdDescription] = useState('');
   const [userId, setUserId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const colorScheme = useColorScheme();
@@ -63,27 +64,39 @@ export default function HouseholdsScreen() {
       
       const { data, error } = await supabase
         .from('household_members')
-        .select(`
-          household_id, 
-          households(
-            id,
-            name
-          )
-        `)
+        .select('household_id')
         .eq('user_id', userId);
 
-      console.log('Fetch households result:', { data, error });
+      console.log('Fetch household memberships result:', { data, error });
 
       if (error) {
-        console.error('Error fetching households:', error);
+        console.error('Error fetching household memberships:', error);
         Alert.alert('Error fetching households', error.message);
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        setHouseholds([]);
+        return;
+      }
+
+      // Get household details
+      const householdIds = data.map(item => item.household_id);
+      const { data: householdsData, error: householdsError } = await supabase
+        .from('households')
+        .select('id, name')
+        .in('id', householdIds);
+
+      if (householdsError) {
+        console.error('Error fetching households:', householdsError);
+        Alert.alert('Error fetching households', householdsError.message);
         return;
       }
 
       // Get detailed stats for each household
       const householdsWithStats = await Promise.all(
-        (data || []).map(async (item) => {
-          const householdId = item.household_id;
+        (householdsData || []).map(async (household) => {
+          const householdId = household.id;
           
           // Get member count
           const { count: memberCount } = await supabase
@@ -100,7 +113,7 @@ export default function HouseholdsScreen() {
 
           return {
             id: householdId,
-            name: item.households?.name ?? 'Unnamed',
+            name: household.name ?? 'Unnamed',
             member_count: memberCount || 0,
             task_count: taskCount || 0,
           };
@@ -108,10 +121,26 @@ export default function HouseholdsScreen() {
       );
 
       console.log('Formatted households with stats:', householdsWithStats);
+      
+      // Log household names for debugging
+      const householdNames = householdsWithStats.map(h => h.name);
+      console.log(`📋 User ${userId} matches with ${householdsWithStats.length} households:`, householdNames);
+      
       setHouseholds(householdsWithStats);
     };
 
     fetchHouseholds();
+    
+    // Polling to detect when user gets added to new households
+    const pollInterval = setInterval(() => {
+      if (userId) {
+        console.log('🔄 Polling for household membership updates...');
+        fetchHouseholds();
+      }
+    }, 2000); // Poll every 2 seconds
+
+    // Cleanup interval on unmount
+    return () => clearInterval(pollInterval);
   }, [userId]);
 
   // Refresh data when screen comes into focus
@@ -156,7 +185,7 @@ export default function HouseholdsScreen() {
 
             return {
               id: householdId,
-              name: item.households?.name ?? 'Unnamed',
+              name: (item.households as any)?.name ?? 'Unnamed',
               member_count: memberCount || 0,
               task_count: taskCount || 0,
             };
@@ -174,48 +203,72 @@ export default function HouseholdsScreen() {
       return;
     }
 
-    if (!userId) {
-      Alert.alert('Error', 'User not authenticated');
-      return;
+    // Get userId from session if it's null
+    let currentUserId = userId;
+    if (!currentUserId) {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+      currentUserId = session.user.id;
+      setUserId(currentUserId);
     }
 
-    console.log('Creating household:', { name: newHouseholdName, userId });
+    console.log('Creating household:', { name: newHouseholdName, userId: currentUserId, userIdType: typeof currentUserId });
 
     try {
       // First, ensure the user exists in the users table
       const { data: userData, error: userError } = await supabase
         .from('users')
-        .select('id')
-        .eq('id', userId)
+        .select('id, name')
+        .eq('id', currentUserId)
         .single();
+
+      console.log('User lookup result:', { userData, userError });
 
       if (userError && userError.code === 'PGRST116') {
         // User doesn't exist, create them
+        console.log('User not found, creating user...');
         const { data: session } = await supabase.auth.getSession();
-        if (session?.user) {
-          const { error: createUserError } = await supabase
+        console.log('Session data:', session);
+        
+        if (session.session?.user) {
+          const { data: newUser, error: createUserError } = await supabase
             .from('users')
             .insert({
-              id: userId,
-              email: session.user.email || '',
-              name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
-            });
+              id: currentUserId,
+              email: session.session?.user.email || '',
+              name: session.session?.user.user_metadata?.full_name || session.session?.user.email?.split('@')[0] || 'User',
+            })
+            .select()
+            .single();
+
+          console.log('User creation result:', { newUser, createUserError });
 
           if (createUserError) {
             console.error('User creation error:', createUserError);
-            Alert.alert('Error', 'Failed to create user profile');
+            Alert.alert('Error', 'Failed to create user profile: ' + createUserError.message);
             return;
           }
+        } else {
+          console.error('No session found');
+          Alert.alert('Error', 'No active session found');
+          return;
         }
       } else if (userError) {
         console.error('User lookup error:', userError);
-        Alert.alert('Error', 'Failed to verify user');
+        Alert.alert('Error', 'Failed to verify user: ' + userError.message);
         return;
       }
 
       const { data, error } = await supabase
         .from('households')
-        .insert({ name: newHouseholdName, created_by: userId })
+        .insert({ 
+          name: newHouseholdName, 
+          description: newHouseholdDescription.trim() || null,
+          created_by: currentUserId 
+        })
         .select()
         .single();
 
@@ -230,27 +283,35 @@ export default function HouseholdsScreen() {
       if (!data) {
         Alert.alert('Error', 'No data returned from household creation');
         return;
-      }
+    }
 
-      console.log('Adding user to household_members:', { household_id: data.id, id: userId });
+    console.log('Adding user to household_members:', { 
+        household_id: data.id, 
+        user_id: currentUserId, 
+        name: userData?.name || 'User' 
+      });
 
       // Add current user to household_members
-      const { error: memberError } = await supabase
+      const { data: memberData, error: memberError } = await supabase
         .from('household_members')
         .insert({ 
           household_id: data.id, 
-          user_id: userId,
+          user_id: currentUserId,
           name: userData?.name || 'User'
-        });
+        })
+        .select();
+
+      console.log('Member creation result:', { memberData, memberError });
 
       if (memberError) {
         console.error('Member creation error:', memberError);
-        Alert.alert('Error joining household', memberError.message);
+        Alert.alert('Error joining household', memberError?.message || 'Unknown error');
         return;
       }
 
       console.log('Household created successfully:', data);
       setNewHouseholdName('');
+      setNewHouseholdDescription('');
       
       // Add the new household with initial stats (1 member, 0 tasks)
       setHouseholds((prev) => [...prev, { 
@@ -351,15 +412,26 @@ export default function HouseholdsScreen() {
             onChangeText={setNewHouseholdName}
             style={[styles.textInput, isDark && styles.textInputDark]}
           />
-          <TouchableOpacity 
-            style={[styles.createButton, !newHouseholdName.trim() && styles.createButtonDisabled]}
-            onPress={createHousehold}
-            disabled={!newHouseholdName.trim()}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="add" size={20} color="white" />
-            <Text style={styles.createButtonText}>Create</Text>
-          </TouchableOpacity>
+          <TextInput
+            placeholder="Enter description (optional)"
+            placeholderTextColor={isDark ? "#8E8E93" : "#8E8E93"}
+            value={newHouseholdDescription}
+            onChangeText={setNewHouseholdDescription}
+            style={[styles.textInput, styles.descriptionInput, isDark && styles.textInputDark]}
+            multiline
+            numberOfLines={2}
+          />
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity 
+              style={[styles.createButton, !newHouseholdName.trim() && styles.createButtonDisabled]}
+              onPress={createHousehold}
+              disabled={!newHouseholdName.trim()}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="add" size={20} color="white" />
+              <Text style={styles.createButtonText}>Create</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </SafeAreaView>
@@ -554,9 +626,11 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 12,
+  },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
   },
   textInput: {
     flex: 1,
@@ -568,6 +642,11 @@ const styles = StyleSheet.create({
     color: '#1C1C1E',
     borderWidth: 1,
     borderColor: '#E5E5EA',
+  },
+  descriptionInput: {
+    marginTop: 8,
+    minHeight: 60,
+    textAlignVertical: 'top',
   },
   textInputDark: {
     backgroundColor: '#2C2C2E',
@@ -583,6 +662,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
+    alignSelf: 'flex-end',
     shadowColor: '#4A90E2',
     shadowOffset: {
       width: 0,

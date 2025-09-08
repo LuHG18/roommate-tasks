@@ -21,7 +21,7 @@ import * as ImagePicker from 'expo-image-picker';
 interface UserProfile {
   id: string;
   email: string;
-  full_name: string | null;
+  name: string | null;
   avatar_url: string | null;
   phone: string | null;
   created_at: string;
@@ -59,7 +59,7 @@ export default function ProfileScreen() {
             .insert({
               id: session.user.id,
               email: session.user.email,
-              name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
+              name: session.user.user_metadata?.full_name || null,
               avatar_url: session.user.user_metadata?.avatar_url || null,
               phone: null,
             })
@@ -71,7 +71,7 @@ export default function ProfileScreen() {
             setProfile({
               id: session.user.id,
               email: session.user.email || '',
-              full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
+              name: session.user.user_metadata?.full_name || null,
               avatar_url: session.user.user_metadata?.avatar_url || null,
               phone: null,
               created_at: new Date().toISOString(),
@@ -97,7 +97,6 @@ export default function ProfileScreen() {
           });
         }
         setEditName(profileData?.name || '');
-        setEditPhone(profileData?.phone || '');
       }
       setLoading(false);
     };
@@ -174,21 +173,14 @@ export default function ProfileScreen() {
     try {
       const { error } = await supabase
         .from('users')
-        .update({ 
-          name: editName,
-          phone: editPhone 
-        })
+        .update({ name: editName })
         .eq('id', profile.id);
 
       if (error) {
         throw error;
       }
 
-      setProfile(prev => prev ? { 
-        ...prev, 
-        full_name: editName,
-        phone: editPhone 
-      } : null);
+      setProfile(prev => prev ? { ...prev, name: editName } : null);
       setEditing(false);
       Alert.alert('Success', 'Profile updated!');
     } catch (error) {
@@ -294,7 +286,7 @@ export default function ProfileScreen() {
               />
             ) : (
               <Text style={[styles.profileName, isDark && styles.profileNameDark]}>
-                {profile.full_name || 'No name set'}
+                {profile.name || 'No name set'}
               </Text>
             )}
             <Text style={[styles.profileEmail, isDark && styles.profileEmailDark]}>

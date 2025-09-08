@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 export default function AuthScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const [isSigningUp, setIsSigningUp] = useState(false);
   const router = useRouter();
@@ -37,7 +38,19 @@ export default function AuthScreen() {
     checkSession();
   }, []);
 
+  const validatePhone = (phoneNumber: string) => {
+    // Remove all non-digit characters
+    const cleaned = phoneNumber.replace(/\D/g, '');
+    // Check if it's a valid US phone number (10 digits) or international (10-15 digits)
+    return cleaned.length >= 10 && cleaned.length <= 15;
+  };
+
   const handleAuth = async () => {
+    if (isSigningUp && !validatePhone(phone)) {
+      Alert.alert('Invalid Phone Number', 'Please enter a valid phone number (10-15 digits)');
+      return;
+    }
+
     setLoading(true);
 
     const { data, error } = isSigningUp
@@ -58,6 +71,7 @@ export default function AuthScreen() {
               id: data.user.id,
               email: data.user.email || '',
               name: data.user.email?.split('@')[0] || 'User',
+              phone: phone.trim(),
             });
         }
         Alert.alert('Sign up successful!', 'You can now log in.');
@@ -134,6 +148,20 @@ export default function AuthScreen() {
               />
             </View>
 
+            {isSigningUp && (
+              <View style={[styles.inputContainer, isDark && styles.inputContainerDark]}>
+                <Ionicons name="call" size={20} color="#8E8E93" style={styles.inputIcon} />
+                <TextInput
+                  placeholder="Enter your phone number"
+                  placeholderTextColor="#8E8E93"
+                  value={phone}
+                  onChangeText={setPhone}
+                  keyboardType="phone-pad"
+                  style={[styles.input, isDark && styles.inputDark]}
+                />
+              </View>
+            )}
+
             <TouchableOpacity 
               style={[styles.authButton, loading && styles.authButtonDisabled]}
               onPress={handleAuth}
@@ -157,7 +185,10 @@ export default function AuthScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity 
-              onPress={() => setIsSigningUp(!isSigningUp)} 
+              onPress={() => {
+                setIsSigningUp(!isSigningUp);
+                setPhone(''); // Clear phone when switching
+              }} 
               style={styles.switchButton}
               activeOpacity={0.7}
             >

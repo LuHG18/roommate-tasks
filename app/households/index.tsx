@@ -70,9 +70,10 @@ export default function HouseholdsScreen() {
             name
           )
         `)
-        .eq('id', userId);
+        .eq('user_id', userId);
 
       console.log('Fetch households result:', { data, error });
+      console.log('First item structure:', data?.[0]);
 
       if (error) {
         console.error('Error fetching households:', error);
@@ -100,7 +101,7 @@ export default function HouseholdsScreen() {
 
           return {
             id: householdId,
-            name: item.households?.name ?? 'Unnamed',
+            name: (item.households as any)?.name ?? 'Unnamed',
             member_count: memberCount || 0,
             task_count: taskCount || 0,
           };
@@ -136,7 +137,7 @@ export default function HouseholdsScreen() {
             name
           )
         `)
-        .eq('id', userId);
+        .eq('user_id', userId);
 
       if (!error && data) {
         const householdsWithStats = await Promise.all(
@@ -156,7 +157,7 @@ export default function HouseholdsScreen() {
 
             return {
               id: householdId,
-              name: item.households?.name ?? 'Unnamed',
+              name: (item.households as any)?.name ?? 'Unnamed',
               member_count: memberCount || 0,
               task_count: taskCount || 0,
             };
@@ -201,12 +202,12 @@ export default function HouseholdsScreen() {
         return;
       }
 
-      console.log('Adding user to household_members:', { household_id: data.id, id: userId });
+      console.log('Adding user to household_members:', { household_id: data.id, user_id: userId });
 
       // Add current user to household_members
       const { error: memberError } = await supabase
         .from('household_members')
-        .insert({ household_id: data.id, id: userId });
+        .insert({ household_id: data.id, user_id: userId });
 
       if (memberError) {
         console.error('Member creation error:', memberError);
